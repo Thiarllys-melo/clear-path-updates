@@ -1,0 +1,40 @@
+name: Validate public updates
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate latest OTA bundle when available
+        run: |
+          python3 - <<'PY'
+          import json, hashlib, re, pathlib, zipfile, sys
+          root = pathlib.Path('updates')
+          manifest = root/'latest.json'
+          if not manifest.exists():
+            print('Repositório inicializado: aguardando primeira publicação OTA.')
+            sys.exit(0)
+          obj = json.loads(manifest.read_text())
+          version = obj['version']
+          assert re.fullmatch(r'1\.0\.\d{1,9}', version)
+          url = 'https://thiarllys-melo.github.io/clear-path-updates/updates/'+version+'.zip'
+          assert obj['url'] == url
+          zfile = root/(version+'.zip')
+          assert zfile.is_file() and zfile.stat().st_size > 1000
+          digest = hashlib.sha256(zfile.read_bytes()).hexdigest()
+          assert digest == obj['checksum'].lower()
+          with zipfile.ZipFile(zfile) as archive:
+            assert archive.testzip() is None
+            names = archive.namelist()
+            assert 'index.html' in names
+            assert any(x.startswith('assets/') for x in names)
+          print('Pacote OTA válido:', version, digest)
+          PY
